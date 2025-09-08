@@ -138,7 +138,7 @@ def apply_qat_to_gpt2(model):
                 QuantizedLinear.from_module(
                     module,
                     w_bits=8,
-                    a_bits=8,
+                    a_bits=32,
                 ),
             )
         elif isinstance(module, Conv1D):
@@ -147,8 +147,8 @@ def apply_qat_to_gpt2(model):
                 name,
                 QuantizedConv1d.from_module(
                     module,
-                    w_bits=4,
-                    a_bits=4,
+                    w_bits=8,
+                    a_bits=32,
                 ),
             )
         else:

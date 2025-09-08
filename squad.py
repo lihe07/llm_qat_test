@@ -71,7 +71,6 @@ total_exacts = 0
 total_f1s = 0
 print("Size of validation set:", len(dataset["validation"]))
 num = len(dataset["validation"])
-num = 10
 
 for question in track(dataset["validation"].select(range(num))):
     ans, start_char = utils.squad(
