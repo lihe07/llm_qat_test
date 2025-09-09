@@ -5,6 +5,7 @@ import math
 import re
 from typing import Dict, Optional, Union
 import torch
+from torch.autograd.function import once_differentiable
 import torch.nn as nn
 import torch.nn.functional as F
 from transformers import (
@@ -14,6 +15,9 @@ from transformers import (
 import copy
 
 
+T = 40.0
+
+
 class FakeQuantize(torch.autograd.Function):
     """
     Simulates roundings caused by quantization during training.
@@ -21,10 +25,7 @@ class FakeQuantize(torch.autograd.Function):
     """
 
     @staticmethod
-    def forward(ctx, x, num_bits=8, per_channel=False) -> torch.Tensor:
-        if num_bits >= 32:
-            return x  # No quantization needed
-
+    def forward(x, num_bits=8, per_channel=False):
         qmin = -(2 ** (num_bits - 1))
         qmax = 2 ** (num_bits - 1) - 1
 
@@ -39,19 +40,49 @@ class FakeQuantize(torch.autograd.Function):
         scale = scale.clamp(min=eps)
 
         # Quantize and dequantize
-        q_x = torch.clamp(torch.round(x / scale), qmin, qmax)
+        input_scaled = x / scale
+        q_x = torch.clamp(torch.round(input_scaled), qmin, qmax)
+        delta = input_scaled - torch.floor(input_scaled) - 0.5
+
         dq_x = q_x * scale
-        return dq_x
+        return (dq_x, scale, delta)
 
     @staticmethod
-    def backward(ctx, grad_output):  # type: ignore
+    def setup_context(ctx, inputs, output):
+        _, scale, delta = output
+
+        ctx.mark_non_differentiable(scale, delta)
+        ctx.save_for_backward(scale, delta)
+
+    @staticmethod
+    def backward(ctx, grad_output, _0, _1):  # type: ignore
         # Straight-through estimator
         return grad_output, None, None, None
+        # Sigmoid STE
+        if hasattr(ctx, "not_quantized") and ctx.not_quantized:
+            return grad_output, None, None
+        scale, delta = ctx.saved_tensors
+
+        grad_mat = torch.exp(T * delta) * T / (1 + torch.exp(T * delta)) ** 2
+
+        grad_mat += 1 / (math.exp(T) + 1)
+
+        # clamp with epsilon to avoid zero gradient
+        thresh = torch.finfo(grad_mat.dtype).eps
+        grad_mat = torch.clamp(grad_mat, min=thresh)
+
+        return grad_output * grad_mat, None, None
 
     @classmethod
     def apply(cls, x: torch.Tensor, num_bits=8, per_channel=False) -> torch.Tensor:
         # To improve type checking
         return super().apply(x, num_bits, per_channel)  # type:ignore
+
+
+def fake_quantize(x: torch.Tensor, num_bits=8, per_channel=False) -> torch.Tensor:
+    if num_bits >= 32:
+        return x
+    return FakeQuantize.apply(x, num_bits, per_channel)[0]
 
 
 class QuantizedLinear(nn.Module):
@@ -80,6 +111,7 @@ class QuantizedLinear(nn.Module):
         out_features,
         bias=True,
         w_bits=8,
+        b_bits=8,
         a_bits=32,
         lora=False,
         rank=1,
@@ -88,6 +120,7 @@ class QuantizedLinear(nn.Module):
         super().__init__()
         self.w_bits = w_bits
         self.a_bits = a_bits
+        self.b_bits = b_bits
 
         self.weight = nn.Parameter(torch.empty((out_features, in_features)))
         nn.init.normal_(self.weight, std=0.02)
@@ -104,26 +137,33 @@ class QuantizedLinear(nn.Module):
             nn.init.zeros_(self.lora_B)
 
             self.scaling = alpha / rank
-            self.weight.requires_grad = False
-            self.bias.requires_grad = False
 
     def forward(self, x):
-        quantized_weight = FakeQuantize.apply(self.weight, self.w_bits, True)
-
-        if self.bias is not None:
-            quantized_bias = FakeQuantize.apply(self.bias, self.w_bits, False)
-        else:
-            quantized_bias = None
-
-        x = FakeQuantize.apply(x, self.a_bits, False)
-        y = F.linear(x, quantized_weight, quantized_bias)
+        x = fake_quantize(x, self.a_bits, False)
 
         if self.lora:
-            quantized_lora_A = FakeQuantize.apply(self.lora_A, self.w_bits, True)
-            quantized_lora_B = FakeQuantize.apply(self.lora_B, self.w_bits, True)
+            # use weight/bias.data to avoid modifying original weights
+            quantized_weight = fake_quantize(self.weight.data, self.w_bits, True)
+            if self.bias is not None:
+                quantized_bias = fake_quantize(self.bias.data, self.b_bits, False)
+            else:
+                quantized_bias = None
 
+            quantized_lora_A = fake_quantize(self.lora_A, self.w_bits, True)
+            quantized_lora_B = fake_quantize(self.lora_B, self.w_bits, True)
+
+            y = F.linear(x, quantized_weight, quantized_bias)
             lora_update = self.scaling * (quantized_lora_B @ quantized_lora_A)
             y = y + nn.functional.linear(x, lora_update)
+        else:
+            quantized_weight = fake_quantize(self.weight, self.w_bits, True)
+
+            if self.bias is not None:
+                quantized_bias = fake_quantize(self.bias, self.b_bits, False)
+            else:
+                quantized_bias = None
+
+            y = F.linear(x, quantized_weight, quantized_bias)
 
         return y
 
@@ -140,9 +180,12 @@ class QuantizedConv1d(nn.Module):
         m.bias = module.bias
         return m
 
-    def __init__(self, nf, nx, w_bits=8, a_bits=32, lora=False, rank=1, alpha=1):
+    def __init__(
+        self, nf, nx, w_bits=8, b_bits=8, a_bits=32, lora=False, rank=1, alpha=1
+    ):
         super().__init__()
         self.w_bits = w_bits
+        self.b_bits = b_bits
         self.a_bits = a_bits
         self.weight = nn.Parameter(torch.empty(nx, nf))
         self.bias = nn.Parameter(torch.zeros(nf))
@@ -156,8 +199,6 @@ class QuantizedConv1d(nn.Module):
             nn.init.zeros_(self.lora_B)
 
             self.scaling = alpha / rank
-            self.weight.requires_grad = False
-            self.bias.requires_grad = False
 
         self.nf = nf
 
@@ -165,20 +206,27 @@ class QuantizedConv1d(nn.Module):
         return f"QuantizedConv1d(w_bits={self.w_bits}, a_bits={self.a_bits})"
 
     def forward(self, x):
-        quantized_weight = FakeQuantize.apply(self.weight, self.w_bits, True)
-        quantized_bias = FakeQuantize.apply(self.bias, self.w_bits, False)
-
-        x = FakeQuantize.apply(x, self.a_bits, False)
-
-        # Conv1D is transposed Linear
-        y = F.linear(x, quantized_weight.t(), quantized_bias)
+        x = fake_quantize(x, self.a_bits, False)
 
         if self.lora:
-            quantized_lora_A = FakeQuantize.apply(self.lora_A, self.w_bits, True)
-            quantized_lora_B = FakeQuantize.apply(self.lora_B, self.w_bits, True)
+            quantized_weight = fake_quantize(self.weight.data, self.w_bits, True)
+            quantized_bias = fake_quantize(self.bias.data, self.b_bits, False)
+
+            y = F.linear(x, quantized_weight.t(), quantized_bias)
+
+            quantized_lora_A = fake_quantize(self.lora_A, self.w_bits, True)
+            quantized_lora_B = fake_quantize(self.lora_B, self.w_bits, True)
 
             lora_update = self.scaling * (quantized_lora_B @ quantized_lora_A)
+            lora_update = lora_update.to(x.device)
             y = y + nn.functional.linear(x, lora_update)
+
+        else:
+            quantized_weight = fake_quantize(self.weight, self.w_bits, True)
+            quantized_bias = fake_quantize(self.bias, self.b_bits, False)
+
+            # Conv1D is transposed Linear
+            y = F.linear(x, quantized_weight.t(), quantized_bias)
 
         return y
 
@@ -186,6 +234,7 @@ class QuantizedConv1d(nn.Module):
 @dataclass
 class PolicyDict:
     w_bits: int
+    b_bits: int
     a_bits: int
     lora: bool
     rank: int = 1
@@ -293,12 +342,14 @@ class DefaultPolicy(Policy):
         if layer_name == "model.qa_outputs":
             return PolicyDict(
                 w_bits=32,
+                b_bits=32,
                 a_bits=32,
                 lora=False,
             )
         else:
             return PolicyDict(
                 w_bits=8,
+                b_bits=8,
                 a_bits=8,
                 lora=False,
             )

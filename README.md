@@ -1,3 +1,5 @@
+# STEP 1-4
+
 ## Baseline GPT2 Finetuned on SQUADv1
 
 Size of validation set: 10570
@@ -9,9 +11,47 @@ Before Finetuning
 
 Exact: 0.35960264900662253, F1: 0.471457638051139
 
-After Finetuning 1000 steps
+Without Cascade Distillation. 1000 steps
+dist_weight = 0.0
 
 Exact: 0.5112582781456954, F1: 0.6249025591912254
+
+With Cascade Distillation. 1000 steps
+dist_weight = 1.0
+dist_loss = KLDivLoss
+
+Exact: 0.5156102175969726, F1: 0.6287690323236491
+
+Custom Estimator T=5
+
+Exact: 0.507, F1: 0.5846562235055388
+
+Full Bias:
+
+Exact: 0.532, F1: 0.605178903614744
+
+## Conservative LoRA
+
+Before Finetuning
+
+Exact: 0.35960264900662253, F1: 0.471457638051139
+
+With Cascade Distillation. 1000 steps
+dist_weight = 1.0
+dist_loss = KLDivLoss
+
+Exact: 0.44219489120151373, F1: 0.5520366628615148
+
+## Depth Adaptive Policy
+
+Before Finetuning
+Exact: 0.31097445600756857, F1: 0.4168484907718352
+
+With Cascade Distillation. 1000 steps
+dist_weight = 1.0
+dist_loss = KLDivLoss
+
+Exact: 0.5223273415326396, F1: 0.635513690587542
 
 ## LLM-QAT + GPT2
 
@@ -33,6 +73,10 @@ Loss = 32-bit loss (normal) + distillation loss 16-bit norm(m32(x) - m16(x)) + d
 
 Or more precisely:
 
-CrossEntropy for 32-bit + KLDivLoss for distillation losses. Hyper-params applied to each dist loss.
+CrossEntropy for 32-bit + MSE for distillation losses. Hyper-params applied to each dist loss.
+
+Actual impl uses MSE loss. Here I used KLDivLoss.
 
 Only train the 32-bit weights. Fix other quantized weights.
+
+# STEP 5

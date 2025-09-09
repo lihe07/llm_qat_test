@@ -59,13 +59,14 @@ def compute_f1(a_gold, a_pred):
     return f1
 
 
-def eval(m: GPT2ForQuestionAnswering):
-    dataset: DatasetDict = load_dataset("squad")  # type: ignore
+dataset: DatasetDict = load_dataset("squad")  # type: ignore
 
+
+def eval(m: GPT2ForQuestionAnswering, num: int = -1):
     total_exacts = 0
     total_f1s = 0
-    print("Size of validation set:", len(dataset["validation"]))
-    num = len(dataset["validation"])
+    if num == -1:
+        num = len(dataset["validation"])
 
     for question in track(
         dataset["validation"].select(range(num)),

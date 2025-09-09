@@ -12,7 +12,7 @@ torch.manual_seed(0)
 
 x = torch.rand(100)
 
-fake_q = gpt2.FakeQuantize.apply(x, num_bits=8, per_channel=False)
+fake_q = gpt2.fake_quantize(x, num_bits=8, per_channel=False)
 
 # FakeQuantize should make a difference
 assert (x - fake_q).norm().item() > 0.0
