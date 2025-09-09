@@ -1,10 +1,11 @@
+import safetensors.torch
 import gpt2
 from transformers import (
     GPT2ForQuestionAnswering,
     GPT2TokenizerFast,
 )
-from datasets import Dataset, load_dataset
-import torch
+from datasets import DatasetDict, load_dataset
+import policies
 import utils
 import re
 import string
@@ -58,28 +59,35 @@ def compute_f1(a_gold, a_pred):
     return f1
 
 
-m = GPT2ForQuestionAnswering.from_pretrained(
-    "./gpt2-squad-finetuned/", device_map="auto"
-)
-gpt2.apply_qat_to_gpt2(m)
+def eval(m: GPT2ForQuestionAnswering):
+    dataset: DatasetDict = load_dataset("squad")  # type: ignore
 
-tokenizer = GPT2TokenizerFast.from_pretrained("gpt2")
+    total_exacts = 0
+    total_f1s = 0
+    print("Size of validation set:", len(dataset["validation"]))
+    num = len(dataset["validation"])
 
-dataset = load_dataset("squad")
+    for question in track(
+        dataset["validation"].select(range(num)),
+        description="Putting beans on toast...",
+    ):
+        ans = utils.squad(m, question["context"], question["question"])
+        # Check if it is correct
+        exact_score = max(compute_exact(a, ans) for a in question["answers"]["text"])
+        f1_score = max(compute_f1(a, ans) for a in question["answers"]["text"])
+        total_exacts += exact_score
+        total_f1s += f1_score
 
-total_exacts = 0
-total_f1s = 0
-print("Size of validation set:", len(dataset["validation"]))
-num = len(dataset["validation"])
+    print(f"Exact: {total_exacts/num}, F1: {total_f1s/num}")
 
-for question in track(dataset["validation"].select(range(num))):
-    ans, start_char = utils.squad(
-        m, question["context"], question["question"], tokenizer
+
+if __name__ == "__main__":
+    m = GPT2ForQuestionAnswering.from_pretrained(
+        "./gpt2-squad-finetuned/", device_map="auto"
     )
-    # Check if it is correct
-    exact_score = max(compute_exact(a, ans) for a in question["answers"]["text"])
-    f1_score = max(compute_f1(a, ans) for a in question["answers"]["text"])
-    total_exacts += exact_score
-    total_f1s += f1_score
+    gpt2.apply_qat_to_gpt2(m, policy=policies.ConservativeStablePolicy())
+    m.load_state_dict(
+        safetensors.torch.load_file("./gpt2-qat-conservative/model.safetensors")
+    )
 
-print(f"Exact: {total_exacts/num}, F1: {total_f1s/num}")
+    eval(m)

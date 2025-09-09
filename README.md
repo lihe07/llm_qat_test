@@ -3,7 +3,15 @@
 Size of validation set: 10570
 Exact: 0.6399243140964995, F1: 0.7349441432312024
 
-## Baseline GPT2 PTQ 4bit and 8bit
+## Conservative Policy
+
+Before Finetuning
+
+Exact: 0.35960264900662253, F1: 0.471457638051139
+
+After Finetuning 1000 steps
+
+Exact: 0.5112582781456954, F1: 0.6249025591912254
 
 ## LLM-QAT + GPT2
 

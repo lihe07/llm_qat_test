@@ -1,4 +1,5 @@
 # Sanity checks
+from numpy import place
 import gpt2
 from transformers import (
     GPT2ForQuestionAnswering,
@@ -15,6 +16,60 @@ fake_q = gpt2.FakeQuantize.apply(x, num_bits=8, per_channel=False)
 
 # FakeQuantize should make a difference
 assert (x - fake_q).norm().item() > 0.0
+
+# Lora
+
+
+def lora():
+    lora_conv1d = gpt2.QuantizedConv1d(20, 10, lora=True)
+    lora_conv1d.weight.data = torch.zeros_like(lora_conv1d.weight)
+
+    lora_linear = gpt2.QuantizedLinear(10, 20, lora=True)
+    x = torch.rand(2, 10)
+
+    lora_conv1d.lora = False
+    y1 = lora_conv1d(x)
+
+    lora_conv1d.lora = True
+    y2 = lora_conv1d(x)
+
+    assert (y1 - y2).norm().item() == 0
+
+    lora_conv1d.lora_B.data = torch.rand_like(lora_conv1d.lora_B)
+    y2 = lora_conv1d(x)
+    assert (y1 - y2).norm().item() > 0.0
+
+    o = lora_linear(torch.rand(2, 10))
+
+
+lora()
+
+
+def placebo():
+    class PlaceboPolicy(gpt2.Policy):
+        def get_policy(self, layer_name, layer):
+            return gpt2.PolicyDict(
+                w_bits=32,
+                a_bits=32,
+                lora=True,
+                rank=10,
+                alpha=10,
+            )
+
+    orig_model = GPT2ForQuestionAnswering.from_pretrained("./gpt2-squad-finetuned")
+    tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
+    x = tokenizer("hello", "hello", return_tensors="pt")
+
+    y_orig = orig_model(**x, return_dict=True)
+
+    gpt2.apply_qat_to_gpt2(orig_model, policy=PlaceboPolicy())
+    y_quant = orig_model(**x, return_dict=True)
+
+    # Default LoRA should not change anything
+    assert (y_orig.start_logits - y_quant.start_logits).norm().item() == 0.0
+
+
+placebo()
 
 
 def shared_weights():
