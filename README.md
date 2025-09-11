@@ -7,6 +7,8 @@ Exact: 0.6399243140964995, F1: 0.7349441432312024
 
 ## Conservative Policy
 
+Budget 588085312
+
 Before Finetuning
 
 Exact: 0.35960264900662253, F1: 0.471457638051139
@@ -28,6 +30,7 @@ Exact: 0.507, F1: 0.5846562235055388
 
 Full Bias:
 
+Budget 590168128
 Exact: 0.532, F1: 0.605178903614744
 
 ## Conservative LoRA
@@ -44,6 +47,8 @@ Exact: 0.44219489120151373, F1: 0.5520366628615148
 
 ## Depth Adaptive Policy
 
+Budget 545576512
+
 Before Finetuning
 Exact: 0.31097445600756857, F1: 0.4168484907718352
 
@@ -52,6 +57,26 @@ dist_weight = 1.0
 dist_loss = KLDivLoss
 
 Exact: 0.5223273415326396, F1: 0.635513690587542
+
+## Aggresive
+
+Budget 430867264
+
+Before:
+Exact: 0.42336802270577106, F1: 0.528154412218754
+
+Exact: 0.5448438978240303, F1: 0.6528876190592499
+
+## Outlier Adaptive
+
+Budget 463372864
+
+Before:
+Exact: 0.49725638599810784, F1: 0.6018914627367191
+
+After:
+
+Exact: 0.575212866603595, F1: 0.6800193651930744
 
 ## LLM-QAT + GPT2
 

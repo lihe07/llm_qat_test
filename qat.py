@@ -20,7 +20,7 @@ class Cascade(nn.Module):
     https://github.com/GATECH-EIC/InstantNet/blob/main/config_train.py
     """
 
-    def __init__(self, models: List[nn.Module]):
+    def __init__(self, models: List[nn.Module], dist_weight=1.0):
         super().__init__()
         # convert to nn.ModuleList
         self.models = nn.ModuleList(models)
@@ -29,7 +29,7 @@ class Cascade(nn.Module):
         self.dist_loss = nn.KLDivLoss(reduction="batchmean")
         # Or MSELoss as in original paper
 
-        self.distill_weight = 1.0
+        self.dist_weight = dist_weight
 
     def forward(
         self,
@@ -79,7 +79,7 @@ class Cascade(nn.Module):
                         + self.dist_loss(output.end_logits, teacher_output.end_logits)
                     ) * 0.5
 
-            loss += distill_loss * self.distill_weight / len(teacher_outputs)
+            loss += distill_loss * self.dist_weight / len(teacher_outputs)
 
             total_loss += loss
 
@@ -94,12 +94,6 @@ model = GPT2ForQuestionAnswering.from_pretrained(
     "./gpt2-squad-finetuned/", device_map="auto"
 )
 
-quant: GPT2ForQuestionAnswering = gpt2.shallow_clone(model)  # type:ignore
-gpt2.apply_qat_to_gpt2(
-    quant,
-    # policy=policies.DepthAdaptivePolicy(total_layers=12),
-    policy=policies.ConservativeFullBiasPolicy(),
-)
 
 # Load SQuAD dataset
 dataset = load_dataset("squad")
@@ -122,15 +116,45 @@ training_args = TrainingArguments(
 )
 
 
+conservative_lora: GPT2ForQuestionAnswering = gpt2.shallow_clone(model)  # type:ignore
+gpt2.apply_qat_to_gpt2(
+    conservative_lora,
+    policy=policies.ConservativeLoRAPolicy(full_bias=True),
+)
+
+depth_adaptive: GPT2ForQuestionAnswering = gpt2.shallow_clone(model)  # type:ignore
+gpt2.apply_qat_to_gpt2(
+    depth_adaptive,
+    policy=policies.DepthAdaptivePolicy(total_layers=12),
+)
+
+aggressive_lora: GPT2ForQuestionAnswering = gpt2.shallow_clone(model)  # type:ignore
+gpt2.apply_qat_to_gpt2(
+    aggressive_lora,
+    policy=policies.AggressiveLowBitLoRA(total_layers=12),
+)
+
+outlier_adaptive: GPT2ForQuestionAnswering = gpt2.shallow_clone(model)  # type:ignore
+gpt2.apply_qat_to_gpt2(
+    outlier_adaptive,
+    policy=policies.OutlierAdaptivePolicy(),
+)
+
+print("Budget no QAT", gpt2.calculate_bit_budget(model))
+print("Budget conservative", gpt2.calculate_bit_budget(conservative_lora))
+print("Budget depth adaptive", gpt2.calculate_bit_budget(depth_adaptive))
+print("Budget aggressive", gpt2.calculate_bit_budget(aggressive_lora))
+print("Budget outlier adaptive", gpt2.calculate_bit_budget(outlier_adaptive))
+
+
 cascade = Cascade(
     [
         model,
-        quant,
+        outlier_adaptive,
     ]
 )
 
 print("Before QAT:")
-# squad.eval(quant, num=100)
 
 trainer = Trainer(
     model=cascade,
@@ -143,4 +167,4 @@ trainer = Trainer(
 trainer.train()
 
 print("After QAT:")
-squad.eval(quant, num=1000)
+squad.eval(conservative_lora)

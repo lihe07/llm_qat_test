@@ -116,6 +116,7 @@ class QuantizedLinear(nn.Module):
         lora=False,
         rank=1,
         alpha=1,
+        lora_bits=8,
     ):
         super().__init__()
         self.w_bits = w_bits
@@ -133,6 +134,7 @@ class QuantizedLinear(nn.Module):
         if lora:
             self.lora_A = nn.Parameter(torch.zeros(rank, in_features))
             self.lora_B = nn.Parameter(torch.zeros(out_features, rank))
+            self.lora_bits = lora_bits
             nn.init.kaiming_uniform_(self.lora_A, a=math.sqrt(5))
             nn.init.zeros_(self.lora_B)
 
@@ -149,8 +151,8 @@ class QuantizedLinear(nn.Module):
             else:
                 quantized_bias = None
 
-            quantized_lora_A = fake_quantize(self.lora_A, self.w_bits, True)
-            quantized_lora_B = fake_quantize(self.lora_B, self.w_bits, True)
+            quantized_lora_A = fake_quantize(self.lora_A, self.lora_bits, True)
+            quantized_lora_B = fake_quantize(self.lora_B, self.lora_bits, True)
 
             y = F.linear(x, quantized_weight, quantized_bias)
             lora_update = self.scaling * (quantized_lora_B @ quantized_lora_A)
@@ -181,7 +183,16 @@ class QuantizedConv1d(nn.Module):
         return m
 
     def __init__(
-        self, nf, nx, w_bits=8, b_bits=8, a_bits=32, lora=False, rank=1, alpha=1
+        self,
+        nf,
+        nx,
+        w_bits=8,
+        b_bits=8,
+        a_bits=32,
+        lora=False,
+        rank=1,
+        alpha=1,
+        lora_bits=8,
     ):
         super().__init__()
         self.w_bits = w_bits
@@ -195,6 +206,7 @@ class QuantizedConv1d(nn.Module):
         if lora:
             self.lora_A = nn.Parameter(torch.zeros(rank, nx))
             self.lora_B = nn.Parameter(torch.zeros(nf, rank))
+            self.lora_bits = lora_bits
             nn.init.kaiming_uniform_(self.lora_A, a=math.sqrt(5))
             nn.init.zeros_(self.lora_B)
 
@@ -214,8 +226,8 @@ class QuantizedConv1d(nn.Module):
 
             y = F.linear(x, quantized_weight.t(), quantized_bias)
 
-            quantized_lora_A = fake_quantize(self.lora_A, self.w_bits, True)
-            quantized_lora_B = fake_quantize(self.lora_B, self.w_bits, True)
+            quantized_lora_A = fake_quantize(self.lora_A, self.lora_bits, True)
+            quantized_lora_B = fake_quantize(self.lora_B, self.lora_bits, True)
 
             lora_update = self.scaling * (quantized_lora_B @ quantized_lora_A)
             lora_update = lora_update.to(x.device)
@@ -237,8 +249,15 @@ class PolicyDict:
     b_bits: int
     a_bits: int
     lora: bool
+    lora_bits: int = 8
     rank: int = 1
     alpha: int = 1
+
+    def __repr__(self) -> str:
+        if self.lora:
+            return f"Policy(w_bits={self.w_bits}, b_bits={self.b_bits}, a_bits={self.a_bits}, lora={self.lora}, rank={self.rank}, alpha={self.alpha}, lora_bits={self.lora_bits})"
+        else:
+            return f"Policy(w_bits={self.w_bits}, b_bits={self.b_bits}, a_bits={self.a_bits}, lora={self.lora})"
 
 
 class Policy(abc.ABC):
@@ -412,3 +431,28 @@ def shallow_clone(model: nn.Module) -> nn.Module:
     _clone_shared(new_model, model)
 
     return new_model
+
+
+def calculate_bit_budget(model: nn.Module) -> int:
+    total_bits = 0
+    for module in model.modules():
+        if isinstance(module, QuantizedLinear) or isinstance(module, QuantizedConv1d):
+            w_bits = module.w_bits
+            b_bits = module.b_bits if module.bias is not None else 0
+            lora_bits = module.lora_bits if module.lora else 0
+            weight_params = module.weight.numel()
+            bias_params = module.bias.numel() if module.bias is not None else 0
+
+            if module.lora and lora_bits != w_bits:
+                # Only count LoRA params if they cannot be merged
+                lora_A_params = module.lora_A.numel()
+                lora_B_params = module.lora_B.numel()
+                total_bits += lora_A_params * lora_bits + lora_B_params * lora_bits
+
+            total_bits += weight_params * w_bits + bias_params * b_bits
+        elif isinstance(module, nn.Linear):
+            # Assume full precision for non-quantized layers
+            weight_params = module.weight.numel()
+            bias_params = module.bias.numel() if module.bias is not None else 0
+            total_bits += weight_params * 32 + bias_params * 32
+    return total_bits

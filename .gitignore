@@ -2,5 +2,6 @@ __pycache__
 gpt2-*
 results
 results-*
-trainer-output
+trainer_output
 .ipynb_checkpoints
+

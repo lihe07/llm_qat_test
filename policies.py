@@ -1,7 +1,4 @@
-import abc
-import re
-from dataclasses import dataclass
-from typing import Union, Optional
+import scipy.stats
 from gpt2 import Policy, PolicyDict
 
 import torch.nn as nn
@@ -23,47 +20,21 @@ class ConservativeStablePolicy(Policy):
       qa_outputs:          w32 / a32 (disable)
     """
 
-    def get_policy(self, layer_name, layer):
-        t = self.classify(layer_name)
-        if t == "qa":
-            return PolicyDict(32, 32, 32, False)
-        if t == "attn_in":
-            return PolicyDict(8, 8, 8, False)
-        if t == "attn_out":
-            return PolicyDict(7, 7, 8, False)
-        if t == "mlp_fc":
-            return PolicyDict(6, 6, 6, False)
-        if t == "mlp_proj":
-            return PolicyDict(7, 7, 7, False)
-        raise ValueError(f"Unrecognized layer type for {layer_name}")
-
-
-class ConservativeFullBiasPolicy(Policy):
-    """
-    Goals:
-      - Minimal risk of quality regression.
-      - Use moderate quantization on internal layers; keep final head (qa) unquantized (32).
-      - Do NOT apply LoRA. Do full fine-tunning.
-    Heuristic bit choices (per-channel weights, per-tensor activations):
-      attn_in (QKV fused): w8 / a8 (outlier-prone)
-      attn_out:            w7 / a8
-      mlp.c_fc (expansion): w6 / a6
-      mlp.c_proj:          w7 / a7
-      qa_outputs:          w32 / a32 (disable)
-    """
+    def __init__(self, full_bias=False):
+        self.full_bias = full_bias
 
     def get_policy(self, layer_name, layer):
         t = self.classify(layer_name)
         if t == "qa":
             return PolicyDict(32, 32, 32, False)
         if t == "attn_in":
-            return PolicyDict(8, 32, 8, False)
+            return PolicyDict(8, 32 if self.full_bias else 8, 8, False)
         if t == "attn_out":
-            return PolicyDict(7, 32, 8, False)
+            return PolicyDict(7, 32 if self.full_bias else 7, 8, False)
         if t == "mlp_fc":
-            return PolicyDict(6, 32, 6, False)
+            return PolicyDict(6, 32 if self.full_bias else 6, 6, False)
         if t == "mlp_proj":
-            return PolicyDict(7, 32, 7, False)
+            return PolicyDict(7, 32 if self.full_bias else 7, 7, False)
         raise ValueError(f"Unrecognized layer type for {layer_name}")
 
 
@@ -71,6 +42,9 @@ class ConservativeLoRAPolicy(Policy):
     """
     Same as ConservativeStablePolicy but with LoRA on every layer except head.
     """
+
+    def __init__(self, full_bias=False):
+        self.full_bias = full_bias
 
     def get_policy(self, layer_name, layer):
         t = self.classify(layer_name)
@@ -80,16 +54,16 @@ class ConservativeLoRAPolicy(Policy):
             return PolicyDict(32, 32, 32, False)
         if t == "attn_in":
             rank, alpha = self.lora_rank_heuristic(in_f, out_f, "mild", 8)
-            return PolicyDict(8, 8, 8, True, rank, alpha)
+            return PolicyDict(8, 32 if self.full_bias else 8, 8, True, 8, rank, alpha)
         if t == "attn_out":
             rank, alpha = self.lora_rank_heuristic(in_f, out_f, "mild", 7)
-            return PolicyDict(7, 7, 8, True, rank, alpha)
+            return PolicyDict(7, 32 if self.full_bias else 7, 8, True, 7, rank, alpha)
         if t == "mlp_fc":
             rank, alpha = self.lora_rank_heuristic(in_f, out_f, "mild", 6)
-            return PolicyDict(6, 6, 6, True, rank, alpha)
+            return PolicyDict(6, 32 if self.full_bias else 6, 6, True, 6, rank, alpha)
         if t == "mlp_proj":
             rank, alpha = self.lora_rank_heuristic(in_f, out_f, "mild", 7)
-            return PolicyDict(7, 7, 7, True, rank, alpha)
+            return PolicyDict(7, 32 if self.full_bias else 7, 7, True, 7, rank, alpha)
         raise ValueError(f"Unrecognized layer type for {layer_name}")
 
 
@@ -108,8 +82,9 @@ class DepthAdaptivePolicy(Policy):
     LoRA only if a layer ends up with w_bits <=4 (which only happens if you manually shrink base).
     """
 
-    def __init__(self, total_layers: int):
+    def __init__(self, total_layers: int, full_bias=False):
         self.total_layers = total_layers
+        self.full_bias = full_bias
 
     def depth_band(self, depth: int) -> str:
         frac = depth / (self.total_layers - 1)
@@ -143,12 +118,21 @@ class DepthAdaptivePolicy(Policy):
         lora = False
         rank = 1
         alpha = 1
+        lora_bits = 32
         if w_bits <= 4 and t in ("attn_out", "mlp_proj"):
             in_f, out_f = self.get_dims(layer)
             rank, alpha = self.lora_rank_heuristic(in_f, out_f, "mild", w_bits)
             lora = True
 
-        return PolicyDict(w_bits, w_bits, a_bits, lora, rank, alpha)
+        return PolicyDict(
+            w_bits,
+            32 if self.full_bias else w_bits,
+            a_bits,
+            lora,
+            lora_bits,
+            rank,
+            alpha,
+        )
 
 
 class AggressiveLowBitLoRA(Policy):
@@ -163,7 +147,7 @@ class AggressiveLowBitLoRA(Policy):
       attn_out: 4/6 (LoRA)
       mlp_fc: 4/5
       mlp_proj: 4/6 (LoRA)
-      qa_outputs: 8/8
+      qa_outputs: 32/32 (no quant)
     Depth modulation:
       Early & late layers: +1 w_bit (cap 8)
       Middle: as base.
@@ -172,8 +156,9 @@ class AggressiveLowBitLoRA(Policy):
       attn_in when w_bits <=4: "moderate"
     """
 
-    def __init__(self, total_layers: int):
+    def __init__(self, total_layers: int, full_bias=False):
         self.total_layers = total_layers
+        self.full_bias = full_bias
 
     def band(self, depth: int) -> str:
         if self.total_layers <= 1:
@@ -188,28 +173,25 @@ class AggressiveLowBitLoRA(Policy):
     def get_policy(self, layer_name: str, layer):
         t = self.classify(layer_name)
         if t == "qa":
-            return PolicyDict(8, 8, 8, False)
+            return PolicyDict(32, 32, 32, False)
 
         base_map = {
-            "attn_in": (5, 6),
-            "attn_out": (4, 6),
-            "mlp_fc": (4, 5),
-            "mlp_proj": (4, 6),
+            "attn_in": (5, 8),
+            "attn_out": (4, 8),
+            "mlp_fc": (4, 8),
+            "mlp_proj": (4, 8),
         }
-        w_bits, a_bits = base_map.get(t, (5, 6))
+        w_bits, a_bits = base_map.get(t, (5, 8))
         depth = self.get_depth(layer_name)
         if depth is not None:
             b = self.band(depth)
             if b in ("early", "late"):
                 w_bits = min(w_bits + 1, 8)
 
-        # Activation safety margin: if w_bits <=4 ensure a_bits >= w_bits + 1 (cap 8)
-        if w_bits <= 4:
-            a_bits = max(a_bits, min(w_bits + 1, 8))
-
         lora = False
         rank = 1
         alpha = 1
+        lora_bits = 32
 
         in_f, out_f = self.get_dims(layer)
         if t in ("attn_out", "mlp_proj"):
@@ -226,10 +208,18 @@ class AggressiveLowBitLoRA(Policy):
             severity = "moderate"
             rank, alpha = self.lora_rank_heuristic(in_f, out_f, severity, w_bits)
 
-        return PolicyDict(w_bits, w_bits, a_bits, lora, rank, alpha)
+        return PolicyDict(
+            w_bits,
+            32 if self.full_bias else w_bits,
+            a_bits,
+            lora,
+            lora_bits,
+            rank,
+            alpha,
+        )
 
 
-class OutlierScoreAdaptivePolicy(Policy):
+class OutlierAdaptivePolicy(Policy):
     """
     Uses externally provided outlier scores to escalate precision or introduce LoRA.
     outlier_scores: dict[layer_name] = float (e.g., max_channel_norm / median_channel_norm or kurtosis)
@@ -249,11 +239,9 @@ class OutlierScoreAdaptivePolicy(Policy):
 
     def __init__(
         self,
-        outlier_scores: dict[str, float],
-        med_thr: float = 3.0,
-        high_thr: float = 6.0,
+        med_thr: float = 6.0,
+        high_thr: float = 10.0,
     ):
-        self.scores = outlier_scores
         self.med_thr = med_thr
         self.high_thr = high_thr
 
@@ -262,34 +250,53 @@ class OutlierScoreAdaptivePolicy(Policy):
         if t == "qa":
             return PolicyDict(32, 32, 32, False)
 
+        weight = layer.weight
+
+        # calculate outlier score
+        # for weight, compute the avg per-channel kurtosis
+        weight_kurt = 0.0
+        for row in weight:
+            row_np = row.detach().cpu().numpy()
+            kurt = scipy.stats.kurtosis(row_np, fisher=False)
+            weight_kurt += kurt
+        weight_kurt /= weight.size(0)
+
         base_map = {
             "attn_in": (6, 8),
-            "attn_out": (5, 7),
-            "mlp_fc": (4, 6),
-            "mlp_proj": (5, 7),
+            "attn_out": (5, 8),
+            "mlp_fc": (4, 8),
+            "mlp_proj": (5, 8),
         }
         w_bits, a_bits = base_map.get(t, (6, 7))
-        score = self.scores.get(layer_name, 0.0)
 
         # Escalation rules
-        if score > self.high_thr:
+        if weight_kurt > self.high_thr:
+            print(f"High outlier detected in {layer_name}: kurtosis {weight_kurt:.2f}")
             if w_bits < 7:
                 w_bits = min(w_bits + 2, 8)
             else:
                 # Add LoRA for refinement
                 lora = True
             a_bits = min(a_bits + 1, 8)
-        elif score > self.med_thr:
+        elif weight_kurt > self.med_thr:
+            print(
+                f"Medium outlier detected in {layer_name}: kurtosis {weight_kurt:.2f}"
+            )
             if w_bits < 8:
                 w_bits = min(w_bits + 1, 8)
             # Optional mild activation increase if attn layer
             if t in ("attn_in", "attn_out"):
                 a_bits = min(a_bits + 1, 8)
+        else:
+            print(
+                f"No significant outliers in {layer_name}: kurtosis {weight_kurt:.2f}"
+            )
 
         # Decide LoRA after adjustments
         lora = False
         rank = 1
         alpha = 1
+        lora_bits = 32
         in_f, out_f = self.get_dims(layer)
 
         # If after escalation still low bits for sensitive layers -> LoRA
@@ -299,140 +306,12 @@ class OutlierScoreAdaptivePolicy(Policy):
             rank, alpha = self.lora_rank_heuristic(in_f, out_f, severity, w_bits)
 
         # If high_thr triggered but we raised bits above 6, optionally still add a mild LoRA if extreme score
-        if score > (self.high_thr * 1.5) and not lora and t in ("attn_out", "attn_in"):
+        if (
+            weight_kurt > (self.high_thr * 1.5)
+            and not lora
+            and t in ("attn_out", "attn_in")
+        ):
             lora = True
             rank, alpha = self.lora_rank_heuristic(in_f, out_f, "mild", w_bits)
 
-        return PolicyDict(w_bits, w_bits, a_bits, lora, rank, alpha)
-
-
-class BitBudgetPolicy(Policy):
-    """
-    Distributes a global approximate weight-bit budget across layers.
-    Approach:
-      - Each matrix contributes cost ~ (in_dim * out_dim * w_bits).
-      - Start from a high default (8 bits) then greedily reduce bits on least-sensitive categories:
-          Priority order for REDUCTION (lowest sensitivity first):
-            1. mlp_fc
-            2. mlp_proj
-            3. attn_out
-            4. attn_in
-            5. qa (never reduced below 8; can stay 32 if budget allows)
-      - When a layer goes below 5 bits and is a projection (attn_out/mlp_proj) attach LoRA.
-      - Activations: tie to weight bits but keep a_bits >= min(w_bits, 6) for attention.
-    NOTE: For simplicity we require a prepass to register layer dimensions via register_layers().
-    """
-
-    REDUCTION_ORDER = ["mlp_fc", "mlp_proj", "attn_out", "attn_in"]  # qa excluded
-
-    def __init__(self, target_total_weight_bits: int, keep_qa_full: bool = True):
-        self.target_total_weight_bits = target_total_weight_bits
-        self.keep_qa_full = keep_qa_full
-        self.layer_infos = []  # list of dicts with: name, type, in, out
-        self.assigned_w_bits = {}
-        self.frozen = False
-
-    def register_layers(
-        self, named_modules: list[tuple[str, Union[nn.Linear, Conv1D]]]
-    ):
-        """
-        Collect layer dimension information before computing allocation.
-        named_modules: list of (layer_name, module)
-        """
-        self.layer_infos.clear()
-        for name, module in named_modules:
-            t = self.classify(name)
-            if t is None:
-                continue
-            if t == "qa" and self.keep_qa_full:
-                in_f, out_f = self.get_dims(module)
-                self.layer_infos.append(
-                    dict(name=name, type=t, in_f=in_f, out_f=out_f, bits=32)
-                )
-            else:
-                in_f, out_f = self.get_dims(module)
-                self.layer_infos.append(
-                    dict(name=name, type=t, in_f=in_f, out_f=out_f, bits=8)
-                )
-        self._apply_budget()
-
-    def _total_cost(self) -> int:
-        total = 0
-        for info in self.layer_infos:
-            total += info["in_f"] * info["out_f"] * info["bits"]
-        return total
-
-    def _eligible_layers_sorted(self):
-        # Return layers (indices) sorted by sensitivity priority for reduction
-        priority_map = {t: i for i, t in enumerate(self.REDUCTION_ORDER)}
-        candidates = []
-        for idx, info in enumerate(self.layer_infos):
-            t = info["type"]
-            if t == "qa":
-                continue
-            if info["bits"] > 2:  # minimal floor
-                candidates.append((priority_map.get(t, 999), idx))
-        candidates.sort()
-        return [idx for _, idx in candidates]
-
-    def _apply_budget(self):
-        current = self._total_cost()
-        # Greedy downward adjustments
-        while current > self.target_total_weight_bits:
-            changed = False
-            for idx in self._eligible_layers_sorted():
-                info = self.layer_infos[idx]
-                old_bits = info["bits"]
-                if old_bits <= 2:
-                    continue
-                # decrement by 1
-                info["bits"] = old_bits - 1
-                new_total = self._total_cost()
-                if new_total <= current:
-                    current = new_total
-                    changed = True
-                if current <= self.target_total_weight_bits:
-                    break
-            if not changed:
-                # Cannot reduce further
-                break
-        # Persist assignments
-        self.assigned_w_bits = {info["name"]: info["bits"] for info in self.layer_infos}
-        self.frozen = True
-
-    def get_policy(self, layer_name: str, layer):
-        if not self.frozen:
-            raise RuntimeError("Must call register_layers() before querying policy.")
-        t = self.classify(layer_name)
-        if t is None:
-            # Default fallback: 8-bit
-            return PolicyDict(8, 8, 8, False)
-
-        w_bits = self.assigned_w_bits.get(layer_name, 8)
-
-        # Activation bits heuristic:
-        #   a_bits = min(max(w_bits, 6), 8) for attention
-        #   a_bits = min(w_bits, 8) for MLP
-        if t in ("attn_in", "attn_out"):
-            a_bits = max(w_bits, 6)
-            a_bits = min(a_bits, 8)
-        elif t == "qa":
-            a_bits = 32 if w_bits == 32 else max(w_bits, 8)
-        else:
-            a_bits = min(w_bits, 8)
-
-        # LoRA injection for very low bits on sensitive projections
-        lora = False
-        rank = 1
-        alpha = 1
-        if t in ("attn_out", "mlp_proj") and w_bits <= 5:
-            in_f, out_f = self.get_dims(layer)
-            severity = "aggressive" if w_bits <= 4 else "moderate"
-            rank, alpha = self.lora_rank_heuristic(in_f, out_f, severity, w_bits)
-            lora = True
-        elif t == "attn_in" and w_bits <= 4:
-            in_f, out_f = self.get_dims(layer)
-            rank, alpha = self.lora_rank_heuristic(in_f, out_f, "moderate", w_bits)
-            lora = True
-
-        return PolicyDict(w_bits, w_bits, a_bits, lora, rank, alpha)
+        return PolicyDict(w_bits, w_bits, a_bits, lora, lora_bits, rank, alpha)
