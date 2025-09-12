@@ -68,6 +68,47 @@ def squad(model: GPT2ForQuestionAnswering, context, question):
     return answer
 
 
+def squad_batched(
+    model: GPT2ForQuestionAnswering, contexts: list[str], questions: list[str]
+):
+    # 1. Tokenize the batch of questions and contexts
+    #    - padding=True makes all sequences in the batch the same length.
+    #    - truncation=True prevents sequences from exceeding the model's max length.
+    inputs = tokenizer(
+        questions, contexts, return_tensors="pt", padding=True, truncation=True
+    )
+
+    device = next(model.parameters()).device
+    inputs = inputs.to(device)
+
+    model.eval()  # Set model to evaluation mode
+    with torch.no_grad():
+        outputs = model(**inputs)
+        start_logits = outputs.start_logits
+        end_logits = outputs.end_logits
+
+        # 2. Get the most likely start/end token for EACH item in the batch
+        #    The `dim=1` is crucial for getting one result per item.
+        start_indices = torch.argmax(start_logits, dim=1)
+        end_indices = torch.argmax(end_logits, dim=1)
+
+    # 3. Decode the answers for each item in the batch
+    answers = []
+    for i in range(len(start_indices)):
+        start_index = start_indices[i]
+        end_index = end_indices[i]
+        input_ids = inputs["input_ids"][i]
+
+        if start_index > end_index:
+            answers.append("")  # No valid answer found
+        else:
+            answer_ids = input_ids[start_index : end_index + 1]
+            answer = tokenizer.decode(answer_ids, skip_special_tokens=True)
+            answers.append(answer)
+
+    return answers
+
+
 try:
     tokenizer = GPT2TokenizerFast.from_pretrained("./gpt2-squad-finetuned")
 except Exception:

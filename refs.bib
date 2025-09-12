@@ -1,0 +1,115 @@
+@misc{llm-qat,
+      title={LLM-QAT: Data-Free Quantization Aware Training for Large Language Models}, 
+      author={Zechun Liu and Barlas Oguz and Changsheng Zhao and Ernie Chang and Pierre Stock and Yashar Mehdad and Yangyang Shi and Raghuraman Krishnamoorthi and Vikas Chandra},
+      year={2023},
+      eprint={2305.17888},
+      archivePrefix={arXiv},
+      primaryClass={cs.CL},
+      url={https://arxiv.org/abs/2305.17888}, 
+}
+
+@misc{instantnet,
+      title={InstantNet: Automated Generation and Deployment of Instantaneously Switchable-Precision Networks}, 
+      author={Yonggan Fu and Zhongzhi Yu and Yongan Zhang and Yifan Jiang and Chaojian Li and Yongyuan Liang and Mingchao Jiang and Zhangyang Wang and Yingyan Celine Lin},
+      year={2025},
+      eprint={2104.10853},
+      archivePrefix={arXiv},
+      primaryClass={cs.LG},
+      url={https://arxiv.org/abs/2104.10853}, 
+}
+
+@article{gpt2,
+  title={Language Models are Unsupervised Multitask Learners},
+  author={Radford, Alec and Wu, Jeff and Child, Rewon and Luan, David and Amodei, Dario and Sutskever, Ilya},
+  year={2019}
+}
+
+@misc{transformers,
+      title={HuggingFace's Transformers: State-of-the-art Natural Language Processing}, 
+      author={Thomas Wolf and Lysandre Debut and Victor Sanh and Julien Chaumond and Clement Delangue and Anthony Moi and Pierric Cistac and Tim Rault and Rémi Louf and Morgan Funtowicz and Joe Davison and Sam Shleifer and Patrick von Platen and Clara Ma and Yacine Jernite and Julien Plu and Canwen Xu and Teven Le Scao and Sylvain Gugger and Mariama Drame and Quentin Lhoest and Alexander M. Rush},
+      year={2020},
+      eprint={1910.03771},
+      archivePrefix={arXiv},
+      primaryClass={cs.CL},
+      url={https://arxiv.org/abs/1910.03771}, 
+}
+
+
+@inproceedings{squad,
+    title = "{SQ}u{AD}: 100,000+ Questions for Machine Comprehension of Text",
+    author = "Rajpurkar, Pranav  and
+      Zhang, Jian  and
+      Lopyrev, Konstantin  and
+      Liang, Percy",
+    editor = "Su, Jian  and
+      Duh, Kevin  and
+      Carreras, Xavier",
+    booktitle = "Proceedings of the 2016 Conference on Empirical Methods in Natural Language Processing",
+    month = nov,
+    year = "2016",
+    address = "Austin, Texas",
+    publisher = "Association for Computational Linguistics",
+    url = "https://aclanthology.org/D16-1264",
+    doi = "10.18653/v1/D16-1264",
+    pages = "2383--2392",
+    eprint={1606.05250},
+    archivePrefix={arXiv},
+    primaryClass={cs.CL},
+}
+
+@misc{hinton,
+      title={Distilling the Knowledge in a Neural Network}, 
+      author={Geoffrey Hinton and Oriol Vinyals and Jeff Dean},
+      year={2015},
+      eprint={1503.02531},
+      archivePrefix={arXiv},
+      primaryClass={stat.ML},
+      url={https://arxiv.org/abs/1503.02531}, 
+}
+
+@misc{smoothquant,
+      title={SmoothQuant: Accurate and Efficient Post-Training Quantization for Large Language Models}, 
+      author={Guangxuan Xiao and Ji Lin and Mickael Seznec and Hao Wu and Julien Demouth and Song Han},
+      year={2024},
+      eprint={2211.10438},
+      archivePrefix={arXiv},
+      primaryClass={cs.CL},
+      url={https://arxiv.org/abs/2211.10438}, 
+}
+
+@misc{pni,
+      title={Parametric Noise Injection: Trainable Randomness to Improve Deep Neural Network Robustness against Adversarial Attack}, 
+      author={Adnan Siraj Rakin and Zhezhi He and Deliang Fan},
+      year={2018},
+      eprint={1811.09310},
+      archivePrefix={arXiv},
+      primaryClass={cs.LG},
+      url={https://arxiv.org/abs/1811.09310}, 
+}
+
+
+@InProceedings{double,
+  title = 	 {Double-Win Quant: Aggressively Winning Robustness of Quantized Deep Neural Networks via Random Precision Training and Inference},
+  author =       {Fu, Yonggan and Yu, Qixuan and Li, Meng and Chandra, Vikas and Lin, Yingyan},
+  booktitle = 	 {Proceedings of the 38th International Conference on Machine Learning},
+  pages = 	 {3492--3504},
+  year = 	 {2021},
+  editor = 	 {Meila, Marina and Zhang, Tong},
+  volume = 	 {139},
+  series = 	 {Proceedings of Machine Learning Research},
+  month = 	 {18--24 Jul},
+  publisher =    {PMLR},
+  pdf = 	 {http://proceedings.mlr.press/v139/fu21c/fu21c.pdf},
+  url = 	 {https://proceedings.mlr.press/v139/fu21c.html},
+  abstract = 	 {Quantization is promising in enabling powerful yet complex deep neural networks (DNNs) to be deployed into resource constrained platforms. However, quantized DNNs are vulnerable to adversarial attacks unless being equipped with sophisticated techniques, leading to a dilemma of struggling between DNNs’ efficiency and robustness. In this work, we demonstrate a new perspective regarding quantization’s role in DNNs’ robustness, advocating that quantization can be leveraged to largely boost DNNs’ robustness, and propose a framework dubbed Double-Win Quant that can boost the robustness of quantized DNNs over their full precision counterparts by a large margin. Specifically, we for the first time identify that when an adversarially trained model is quantized to different precisions in a post-training manner, the associated adversarial attacks transfer poorly between different precisions. Leveraging this intriguing observation, we further develop Double-Win Quant integrating random precision inference and training to further reduce and utilize the poor adversarial transferability, enabling an aggressive “win-win" in terms of DNNs’ robustness and efficiency. Extensive experiments and ablation studies consistently validate Double-Win Quant’s effectiveness and advantages over state-of-the-art (SOTA) adversarial training methods across various attacks/models/datasets. Our codes are available at: https://github.com/RICE-EIC/Double-Win-Quant.}
+}
+
+@misc{cpt,
+      title={CPT: Efficient Deep Neural Network Training via Cyclic Precision}, 
+      author={Yonggan Fu and Han Guo and Meng Li and Xin Yang and Yining Ding and Vikas Chandra and Yingyan Celine Lin},
+      year={2025},
+      eprint={2101.09868},
+      archivePrefix={arXiv},
+      primaryClass={cs.LG},
+      url={https://arxiv.org/abs/2101.09868}, 
+}

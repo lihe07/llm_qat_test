@@ -62,14 +62,17 @@ def compute_f1(a_gold, a_pred):
 dataset: DatasetDict = load_dataset("squad")  # type: ignore
 
 
+eval_dataset = dataset["validation"]
+
+
 def eval(m: GPT2ForQuestionAnswering, num: int = -1):
     total_exacts = 0
     total_f1s = 0
     if num == -1:
-        num = len(dataset["validation"])
+        num = len(eval_dataset)
 
     for question in track(
-        dataset["validation"].select(range(num)),
+        eval_dataset.select(range(num)),
         description="Putting beans on toast...",
     ):
         ans = utils.squad(m, question["context"], question["question"])

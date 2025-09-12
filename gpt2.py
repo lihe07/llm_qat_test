@@ -122,6 +122,8 @@ class QuantizedLinear(nn.Module):
         self.w_bits = w_bits
         self.a_bits = a_bits
         self.b_bits = b_bits
+        self.in_features = in_features
+        self.out_features = out_features
 
         self.weight = nn.Parameter(torch.empty((out_features, in_features)))
         nn.init.normal_(self.weight, std=0.02)
@@ -131,14 +133,18 @@ class QuantizedLinear(nn.Module):
             self.register_parameter("bias", None)
 
         self.lora = lora
+        self.lora_bits = lora_bits
+        self.rank = rank
+        self.alpha = alpha
         if lora:
-            self.lora_A = nn.Parameter(torch.zeros(rank, in_features))
-            self.lora_B = nn.Parameter(torch.zeros(out_features, rank))
-            self.lora_bits = lora_bits
-            nn.init.kaiming_uniform_(self.lora_A, a=math.sqrt(5))
-            nn.init.zeros_(self.lora_B)
+            self.init_lora_params()
 
-            self.scaling = alpha / rank
+    def init_lora_params(self):
+        self.lora_A = nn.Parameter(torch.zeros(self.rank, self.in_features))
+        self.lora_B = nn.Parameter(torch.zeros(self.out_features, self.rank))
+        nn.init.kaiming_uniform_(self.lora_A, a=math.sqrt(5))
+        nn.init.zeros_(self.lora_B)
+        self.scaling = self.alpha / self.rank
 
     def forward(self, x):
         x = fake_quantize(x, self.a_bits, False)
@@ -201,18 +207,25 @@ class QuantizedConv1d(nn.Module):
         self.weight = nn.Parameter(torch.empty(nx, nf))
         self.bias = nn.Parameter(torch.zeros(nf))
         nn.init.normal_(self.weight, std=0.02)
+
+        self.nx = nx
+        self.nf = nf
+
         self.lora = lora
+        self.rank = rank
+        self.lora_bits = lora_bits
+        self.alpha = alpha
 
         if lora:
-            self.lora_A = nn.Parameter(torch.zeros(rank, nx))
-            self.lora_B = nn.Parameter(torch.zeros(nf, rank))
-            self.lora_bits = lora_bits
-            nn.init.kaiming_uniform_(self.lora_A, a=math.sqrt(5))
-            nn.init.zeros_(self.lora_B)
+            self.init_lora_params()
 
-            self.scaling = alpha / rank
+    def init_lora_params(self):
+        self.lora_A = nn.Parameter(torch.zeros(self.rank, self.nx))
+        self.lora_B = nn.Parameter(torch.zeros(self.nf, self.rank))
+        nn.init.kaiming_uniform_(self.lora_A, a=math.sqrt(5))
+        nn.init.zeros_(self.lora_B)
 
-        self.nf = nf
+        self.scaling = self.alpha / self.rank
 
     def __repr__(self):
         return f"QuantizedConv1d(w_bits={self.w_bits}, a_bits={self.a_bits})"
@@ -294,13 +307,15 @@ class Policy(abc.ABC):
             return int(m.group(1))
         return None
 
-    def get_dims(self, layer: Union[nn.Linear, Conv1D]) -> tuple[int, int]:
+    def get_dims(
+        self, layer: Union[nn.Linear, Conv1D, QuantizedConv1d, QuantizedLinear]
+    ) -> tuple[int, int]:
         """
         Returns (in_features, out_features) for rank heuristics.
         """
-        if isinstance(layer, nn.Linear):
+        if isinstance(layer, nn.Linear) or isinstance(layer, QuantizedLinear):
             return layer.in_features, layer.out_features
-        if isinstance(layer, Conv1D):
+        if isinstance(layer, Conv1D) or isinstance(layer, QuantizedConv1d):
             return layer.nx, layer.nf
 
     def lora_rank_heuristic(
@@ -351,39 +366,59 @@ class Policy(abc.ABC):
 
     @abc.abstractmethod
     def get_policy(
-        self, layer_name: str, layer: Union[nn.Linear, Conv1D]
+        self,
+        layer_name: str,
+        layer: Union[nn.Linear, Conv1D, QuantizedLinear, QuantizedConv1d],
     ) -> PolicyDict:
         raise NotImplementedError
 
+    def __repr__(self) -> str:
+        return self.__class__.__name__
 
-class DefaultPolicy(Policy):
+
+class PlaceboPolicy(Policy):
     def get_policy(self, layer_name, layer):
-        if layer_name == "model.qa_outputs":
-            return PolicyDict(
-                w_bits=32,
-                b_bits=32,
-                a_bits=32,
-                lora=False,
-            )
-        else:
-            return PolicyDict(
-                w_bits=8,
-                b_bits=8,
-                a_bits=8,
-                lora=False,
-            )
+        return PolicyDict(
+            w_bits=32,
+            b_bits=32,
+            a_bits=32,
+            lora=False,
+        )
+
+
+def get_policy_dict(model: nn.Module, policy: Policy) -> Dict[str, PolicyDict]:
+    d = {}
+
+    def _get_policy_dict(root: str, model: nn.Module, policy: Policy):
+        for name, module in model.named_children():
+            if (
+                isinstance(module, nn.Linear)
+                or isinstance(module, Conv1D)
+                or isinstance(module, QuantizedLinear)
+                or isinstance(module, QuantizedConv1d)
+            ):
+                d[root + "." + name] = policy.get_policy(root + "." + name, module)
+
+            else:
+                _get_policy_dict(root + "." + name, module, policy)
+
+    _get_policy_dict("model", model, policy)
+
+    return d
 
 
 # Recursively replace Linear layers in GPT-2 with QuantizedLinear
-def apply_qat_to_gpt2(model: nn.Module, policy: Union[Policy, None] = None):
-    if policy is None:
-        policy = DefaultPolicy()
-
-    def _apply_qat_to_gpt2(root: str, model: nn.Module, policy: Policy):
+def apply_qat_to_gpt2(
+    model: nn.Module, policy: Union[Policy, Dict[str, PolicyDict]] = PlaceboPolicy()
+):
+    def _apply_qat_to_gpt2(root: str, model: nn.Module, policy: Union[Policy, Dict]):
         for name, module in model.named_children():
+            key = root + "." + name
             if isinstance(module, nn.Linear):
                 policy_dict = dataclasses.asdict(
-                    policy.get_policy(root + "." + name, module)
+                    policy.get_policy(key, module)
+                    if isinstance(policy, Policy)
+                    else policy[key]
                 )
                 setattr(
                     model,
@@ -395,7 +430,9 @@ def apply_qat_to_gpt2(model: nn.Module, policy: Union[Policy, None] = None):
                 )
             elif isinstance(module, Conv1D):
                 policy_dict = dataclasses.asdict(
-                    policy.get_policy(root + "." + name, module)
+                    policy.get_policy(key, module)
+                    if isinstance(policy, Policy)
+                    else policy[key]
                 )
                 setattr(
                     model,
@@ -405,6 +442,24 @@ def apply_qat_to_gpt2(model: nn.Module, policy: Union[Policy, None] = None):
                         **policy_dict,
                     ),
                 )
+            elif isinstance(module, QuantizedLinear) or isinstance(
+                module, QuantizedConv1d
+            ):
+                policy_dict = dataclasses.asdict(
+                    policy.get_policy(key, module)
+                    if isinstance(policy, Policy)
+                    else policy[key]
+                )
+                # Modify existing QuantizedLinear/Conv1d according to policy
+                need_lora_init = False
+                if not module.lora and policy_dict["lora"]:
+                    need_lora_init = True
+                for k, v in policy_dict.items():
+                    if hasattr(module, k):
+                        setattr(module, k, v)
+                if need_lora_init:
+                    module.init_lora_params()
+
             else:
                 _apply_qat_to_gpt2(root + "." + name, module, policy)
 
