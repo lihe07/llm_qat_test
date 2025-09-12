@@ -68,57 +68,18 @@ def squad(model: GPT2ForQuestionAnswering, context, question):
     return answer
 
 
-def squad_batched(
-    model: GPT2ForQuestionAnswering, contexts: list[str], questions: list[str]
-):
-    # 1. Tokenize the batch of questions and contexts
-    #    - padding=True makes all sequences in the batch the same length.
-    #    - truncation=True prevents sequences from exceeding the model's max length.
-    inputs = tokenizer(
-        questions, contexts, return_tensors="pt", padding=True, truncation=True
-    )
-
-    device = next(model.parameters()).device
-    inputs = inputs.to(device)
-
-    model.eval()  # Set model to evaluation mode
-    with torch.no_grad():
-        outputs = model(**inputs)
-        start_logits = outputs.start_logits
-        end_logits = outputs.end_logits
-
-        # 2. Get the most likely start/end token for EACH item in the batch
-        #    The `dim=1` is crucial for getting one result per item.
-        start_indices = torch.argmax(start_logits, dim=1)
-        end_indices = torch.argmax(end_logits, dim=1)
-
-    # 3. Decode the answers for each item in the batch
-    answers = []
-    for i in range(len(start_indices)):
-        start_index = start_indices[i]
-        end_index = end_indices[i]
-        input_ids = inputs["input_ids"][i]
-
-        if start_index > end_index:
-            answers.append("")  # No valid answer found
-        else:
-            answer_ids = input_ids[start_index : end_index + 1]
-            answer = tokenizer.decode(answer_ids, skip_special_tokens=True)
-            answers.append(answer)
-
-    return answers
-
-
+tokenizer: GPT2TokenizerFast
 try:
     tokenizer = GPT2TokenizerFast.from_pretrained("./gpt2-squad-finetuned")
 except Exception:
     tokenizer = GPT2TokenizerFast.from_pretrained("gpt2")
-    tokenizer.add_special_tokens({"pad_token": tokenizer.eos_token})
+    tokenizer.add_special_tokens({"pad_token": tokenizer.eos_token})  # type: ignore
 
 
 # Preprocessing
 max_length = 384
 doc_stride = 128
+return_overflowing_tokens = True
 
 
 def preprocess_function(examples):
@@ -129,7 +90,7 @@ def preprocess_function(examples):
         max_length=max_length,
         truncation="only_second",
         stride=doc_stride,
-        return_overflowing_tokens=True,
+        return_overflowing_tokens=return_overflowing_tokens,
         return_offsets_mapping=True,
         padding="max_length",
     )
@@ -142,6 +103,56 @@ def preprocess_function(examples):
 
     for i, offset in enumerate(offset_mapping):
         sample_idx = sample_map[i]
+        answer = answers[sample_idx]
+        start_char = answer["answer_start"][0]
+        end_char = start_char + len(answer["text"][0])
+        sequence_ids = inputs.sequence_ids(i)
+
+        # Find the start and end of the context
+        idx = 0
+        while sequence_ids[idx] != 1:
+            idx += 1
+        context_start = idx
+        while idx < len(sequence_ids) and sequence_ids[idx] == 1:
+            idx += 1
+        context_end = idx - 1
+
+        # If the answer is not fully inside the context, label is (0, 0)
+        if offset[context_start][0] > start_char or offset[context_end][1] < end_char:
+            start_positions.append(0)
+            end_positions.append(0)
+        else:
+            # Otherwise it's the start and end token positions
+            idx = context_start
+            while idx <= context_end and offset[idx][0] <= start_char:
+                idx += 1
+            start_positions.append(idx - 1)
+
+            idx = context_end
+            while idx >= context_start and offset[idx][1] >= end_char:
+                idx -= 1
+            end_positions.append(idx + 1)
+
+    inputs["start_positions"] = start_positions
+    inputs["end_positions"] = end_positions
+    return inputs
+
+
+def preprocess_no_truncate(examples):
+    questions = [q.strip() for q in examples["question"]]
+    inputs = tokenizer(
+        questions,
+        examples["context"],
+        return_offsets_mapping=True,
+    )
+
+    offset_mapping = inputs.pop("offset_mapping")
+    answers = examples["answers"]
+    start_positions = []
+    end_positions = []
+
+    for i, offset in enumerate(offset_mapping):
+        sample_idx = i
         answer = answers[sample_idx]
         start_char = answer["answer_start"][0]
         end_char = start_char + len(answer["text"][0])

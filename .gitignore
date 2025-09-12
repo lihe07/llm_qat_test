@@ -3,5 +3,6 @@ gpt2-*
 results
 results-*
 trainer_output
+squad-adversarial
 .ipynb_checkpoints
 

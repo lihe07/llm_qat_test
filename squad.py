@@ -1,4 +1,6 @@
+import datasets
 import safetensors.torch
+import torch
 import gpt2
 from transformers import (
     GPT2ForQuestionAnswering,
@@ -76,6 +78,46 @@ def eval(m: GPT2ForQuestionAnswering, num: int = -1):
         description="Putting beans on toast...",
     ):
         ans = utils.squad(m, question["context"], question["question"])
+        # Check if it is correct
+        exact_score = max(compute_exact(a, ans) for a in question["answers"]["text"])
+        f1_score = max(compute_f1(a, ans) for a in question["answers"]["text"])
+        total_exacts += exact_score
+        total_f1s += f1_score
+
+    print(f"Exact: {total_exacts/num}, F1: {total_f1s/num}")
+
+
+def eval_attack(m: GPT2ForQuestionAnswering, num: int = -1):
+    d = datasets.load_from_disk("./squad-adversarial")
+
+    total_exacts = 0
+    total_f1s = 0
+    if num == -1:
+        num = len(d)
+    num = min(num, len(d))
+
+    for question in track(
+        d.select(range(num)),
+        description="Putting beans on toast...",
+    ):
+        device = next(m.parameters()).device
+        input_ids = torch.tensor([question["input_ids"]]).to(device)
+
+        m.eval()  # Set model to evaluation mode
+        with torch.no_grad():
+            outputs = m(input_ids=input_ids)
+            start_logits = outputs.start_logits
+            end_logits = outputs.end_logits
+
+            start_index = torch.argmax(start_logits)
+            end_index = torch.argmax(end_logits)
+
+            if start_index > end_index:
+                ans = ""
+            else:
+                answer_ids = input_ids[0, start_index : end_index + 1]
+                ans = utils.tokenizer.decode(answer_ids, skip_special_tokens=True)
+
         # Check if it is correct
         exact_score = max(compute_exact(a, ans) for a in question["answers"]["text"])
         f1_score = max(compute_f1(a, ans) for a in question["answers"]["text"])
