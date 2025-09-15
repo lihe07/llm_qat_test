@@ -36,3 +36,6 @@ class MyTrainer(nn.Module):
             gpt2.apply_qat_to_gpt2(self.model, policy=policy)
             print("Policy:", original.__repr__())
             squad.eval(self.model, num)
+
+    def save(self, path: str):
+        self.model.save_pretrained(path)

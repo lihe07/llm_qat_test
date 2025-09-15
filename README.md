@@ -149,6 +149,82 @@ Exact: 0.3486281929990539, F1: 0.4718602772535547
 Policy: UniformLoRAPolicy(w_bits=4, a_bits=4, b_bits=32, lora=True, lora_bits=4)
 Exact: 0.0008514664143803217, F1: 0.05615857881741222
 
+# All TOGETHER with Cyclic
+
+After QAT:
+Policy: PlaceboPolicy
+Putting beans on toast... ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 100% 0:01:30
+Exact: 0.6031220435193945, F1: 0.7082424628501578
+Policy: OutlierAdaptivePolicy
+Putting beans on toast... ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 100% 0:06:58
+Exact: 0.5567644276253548, F1: 0.6644210782619213
+Policy: AggressiveLowBitLoRA
+Putting beans on toast... ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 100% 0:15:18
+Exact: 0.5267738883632923, F1: 0.6361663208207623
+Policy: DepthAdaptivePolicy
+Putting beans on toast... ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 100% 0:03:47
+Exact: 0.47540208136234624, F1: 0.5921434591755828
+Policy: ConservativeLoRAPolicy
+Putting beans on toast... ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 100% 0:20:09
+Exact: 0.4705771050141911, F1: 0.5890252635963865
+Policy: UniformLoRAPolicy(w_bits=8, a_bits=8, b_bits=32, lora=True, lora_bits=8)
+Putting beans on toast... ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 100% 0:20:53
+Exact: 0.5725638599810785, F1: 0.6787266457314
+Policy: UniformLoRAPolicy(w_bits=6, a_bits=6, b_bits=32, lora=True, lora_bits=6)
+Putting beans on toast... ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 100% 0:20:45
+Exact: 0.2683065279091769, F1: 0.37752535950545946
+Policy: UniformLoRAPolicy(w_bits=4, a_bits=4, b_bits=32, lora=True, lora_bits=4)
+Putting beans on toast... ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 100% 0:20:41
+Exact: 0.0012298959318826868, F1: 0.05857159369932814
+python ./qat.py  68129.78s user 10430.07s system 1126% cpu 1:56:16.17 total
+
+Selected
+
+Policy: UniformLoRAPolicy(w_bits=8, a_bits=8, b_bits=32, lora=False, lora_bits=8)
+Putting beans on toast... ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 100% 0:03:58
+Exact: 0.5815515610217596, F1: 0.6851512702238174
+Policy: UniformLoRAPolicy(w_bits=7, a_bits=7, b_bits=32, lora=False, lora_bits=7)
+Putting beans on toast... ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 100% 0:03:56
+Exact: 0.5469252601702933, F1: 0.6533543781229495
+Policy: UniformLoRAPolicy(w_bits=6, a_bits=6, b_bits=32, lora=False, lora_bits=6)
+Putting beans on toast... ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 100% 0:03:55
+Exact: 0.3408703878902554, F1: 0.45991838508843064
+Policy: UniformLoRAPolicy(w_bits=5, a_bits=5, b_bits=32, lora=False, lora_bits=5)
+Putting beans on toast... ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 100% 0:03:54
+Exact: 0.012109744560075686, F1: 0.06706515166597793
+Policy: UniformLoRAPolicy(w_bits=4, a_bits=4, b_bits=32, lora=False, lora_bits=4)
+Putting beans on toast... ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 100% 0:03:43
+Exact: 0.0008514664143803217, F1: 0.049804380467493935
+
+# Basic shared params
+
+After QAT:
+Policy: PlaceboPolicy
+Putting beans on toast... ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 100% 0:01:31
+Exact: 0.6350047303689688, F1: 0.7326418382986938
+Policy: OutlierAdaptivePolicy
+Putting beans on toast... ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 100% 0:07:10
+Exact: 0.522894985808893, F1: 0.6264125778380173
+Policy: AggressiveLowBitLoRA
+Putting beans on toast... ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 100% 0:14:06
+Exact: 0.45288552507095553, F1: 0.5572679560405046
+Policy: DepthAdaptivePolicy
+Putting beans on toast... ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 100% 0:03:47
+Exact: 0.3712393566698202, F1: 0.4786692946465182
+Policy: ConservativeLoRAPolicy
+Putting beans on toast... ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 100% 0:21:39
+Exact: 0.3977294228949858, F1: 0.5135047898563451
+Policy: UniformLoRAPolicy(w_bits=8, a_bits=8, b_bits=32, lora=True, lora_bits=8)
+Putting beans on toast... ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 100% 0:21:55
+Exact: 0.6009460737937559, F1: 0.6960120041038855
+Policy: UniformLoRAPolicy(w_bits=6, a_bits=6, b_bits=32, lora=True, lora_bits=6)
+Putting beans on toast... ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 100% 0:21:33
+Exact: 0.13074739829706716, F1: 0.20735539194918615
+Policy: UniformLoRAPolicy(w_bits=4, a_bits=4, b_bits=32, lora=True, lora_bits=4)
+Putting beans on toast... ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 100% 0:21:24
+Exact: 0.0015137180700094607, F1: 0.05551969774875486
+python ./qat.py  66468.42s user 11455.35s system 1086% cpu 1:59:33.49 total
+
 ## LLM-QAT + GPT2
 
 LLM-QAT summary:
@@ -175,4 +251,11 @@ Actual impl uses MSE loss. Here I used KLDivLoss.
 
 Only train the 32-bit weights. Fix other quantized weights.
 
-# STEP 5
+# STEP 6
+
+Uniform 8
+Exact: 0.411, F1: 0.48472784017113146
+
+Full
+Exact: 0.6399243140964995, F1: 0.7349441432312024
+Exact: 0.427, F1: 0.5015237065018735

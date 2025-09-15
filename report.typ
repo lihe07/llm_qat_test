@@ -188,13 +188,13 @@ The detailed results are summarized in Table @tab:results. The size is calculate
   An important observation is that Outlier Adaptive policy, which uses the least amount of bits, outperforms the believed best Conservative LoRA policy by a large margin (0.57 v.s. 0.51 exact scores). This suggests that more bits do not necessarily lead to better performance, and that intelligent allocation of bits can yield better results.
   
 #figure(
-  caption: [Comparison of Different Quantization Policies without CDT],
+  caption: [Comparison between CDT and Independently Fine-tuned Quantization Policies],
   placement: auto,
   table(
     columns: 5,
 
     // Header Row
-    [QAT Policy], [Exact], [F1], [Exact \ (with CDT)], [F1 \ (with CDT)],
+    [QAT Policy], [Exact], [F1], [Exact \ w/CDT], [F1 \ w/CDT],
 
     // Data Rows
     [Outlier Adaptive],  [#strong([0.5752])], [#strong([0.6800])], [0.5685], [0.6754],
@@ -204,7 +204,9 @@ The detailed results are summarized in Table @tab:results. The size is calculate
   )
 ) <tab:results_no_cdt>
 
-  I also experimented with training the same quantization policies without Cascade Distillation Training (CDT) and using only the hard loss. The training hyperparameters remain the same, and the results are summarized in Table @tab:results_no_cdt. One can see that CDT consistently improves the performance of all policies, with the most significant improvement seen in the Conservative LoRA policy (0.51 v.s. 0.44 exact scores). This suggests that CDT is an effective training strategy for switchable quantization, as it allows the model to learn from higher bit-width configurations and transfer knowledge to lower bit-width configurations @instantnet.
+  I also experimented with training the same quantization policies independently without Cascade Distillation Training (CDT) and using only the hard loss. The training hyperparameters remain the same, and the results are summarized in Table @tab:results_no_cdt. Note that this is slightly different from the purpose of InstantNet, which uses one set of parameters to support multiple quantization configurations. Here, I trained separate models for each configuration, which, based on intuition, should yield better performance.
+
+  One can see that CDT consistently outperforms all individually trained policies, with the most significant improvement seen in the Conservative LoRA policy (0.51 v.s. 0.44 exact scores). This suggests that CDT is an effective training strategy for both *switchable and non-switchable quantization*.
 
 - [Step 4] A motivation behind switchable quantization is to support diverse layer-wise quantization configurations simultaneously, accommodating different resource allocation needs. Could you suggest additional training objectives that could more effectively facilitate the mechanism for switching quantization bit-widths?
 
@@ -216,10 +218,77 @@ The detailed results are summarized in Table @tab:results. The size is calculate
 = Results with CPT
 
 
+#figure(
+  caption: [Comparison of Results with CPT and without CPT],
+  placement: auto,
+  table(
+    columns: (2fr, 1fr, 1fr, 1fr, 1fr),
+
+    [QAT Policy],                        [Exact],            [F1],               [Exact w/CPT], [F1\ w/CPT],
+    [Outlier Adaptive],                  [0.5229],           [0.6264],           [#strong([0.5567])],   [#strong([0.6644])],
+    [Aggressive LoRA],                   [0.4529],           [0.5573],           [#strong([0.5268])],   [#strong([0.6362])],
+    [Depth Adaptive],                    [0.3712],           [0.4787],           [#strong([0.4754])],   [#strong([0.5921])],
+    [Conservative LoRA],                 [0.3977],           [0.5135],           [#strong([0.4706])],   [#strong([0.5890])],
+    [Uniform LoRA (8-bit)],              [#strong([0.6009])], [#strong([0.6960])], [0.5726],           [0.6787],
+    [Uniform LoRA (6-bit)],              [0.1307],           [0.2074],           [#strong([0.2683])],   [#strong([0.3775])],
+    [Uniform LoRA (4-bit)],              [#strong([0.0015])], [0.0555],           [0.0012],           [#strong([0.0586])],
+  )
+) <tab:cpt_results>
+
+
+#figure(
+  caption: [Comparison of Results with CPT and without CPT. Uniform policies without LoRA.],
+  placement: auto,
+  table(
+    columns: (2fr, 1fr, 1fr, 1fr, 1fr),
+
+    [QAT Policy],                        [Exact],            [F1],               [Exact w/CPT], [F1\ w/CPT],
+    [Uniform (8-bit)],              [#strong([0.6009])], [#strong([0.6960])], [0.5816],           [0.6852],
+    [Uniform (7-bit)],              [], [],                                   [0.5469],           [0.6534],
+    [Uniform (6-bit)],              [0.1307],           [0.2074],           [#strong([0.3408])],   [#strong([0.4599])],
+    [Uniform (5-bit)],              [], [],                                  [0.0121],           [0.0671],
+    [Uniform (4-bit)],              [#strong([0.0015])], [#strong([0.0555])],           [0.0009],           [0.0498],
+  )
+) <tab:cpt_results_uni>
+
+  I fine-tuned the same quantization policies using Cyclic Precision Training (CPT) @cpt for 1000 steps, with a learning rate of $2 times 10^(-5)$ and a batch size of 4. Each CPT cycle consists of 100 steps, with the bit-widths increasing from the minimum to the maximum in one cycle.
+
+  As a comparison, I also fine-tuned the same policies without CPT for 1000 steps, with the same hyperparameters. Note that for fair comparison, the without CPT models are forced to share the parameters, as appropriate for the CPT setting. The results are summarized in Table @tab:cpt_results.
+
+  The original CPT paper only explored uniform quantizations without LoRA and different per-layer configurations. To respect the original setting, I also experimented with uniform quantization without LoRA, with results summarized in Table @tab:cpt_results_uni.
+
+ - [Step 5] Does this phenomenon align with the observations in CPT (ICLR’21)? If not, what could be the potential reasons?
+
+  The short answer is #strong([yes]). CPT consistently improves the performance of all quantization policies, with the most significant improvement seen in the Aggressive LoRA policy (0.53 v.s. 0.45 exact scores). This aligns with the observations in the original CPT paper @cpt, which also reported consistent improvements in CNNs. 
+
+  However, in terms of switchable quantization, the improvement is less significant compared to the InstantNet paper @instantnet. But this could result from a confounding factor. Moth my implementation and the official InstantNet implementation involve accumulating gradients over multiple bit-width configurations before updating the parameters in a single step. This is an optimization technique to prevent duplicate GPU VRAM usage. Nevertheless, this also means that the effective batch size is larger than that in the original CPT paper, which could result in unfair comparison with fixed 1000 steps.
+
 
 
 = Impact on Robustness
 
+== HotFlip Attack
+
+HotFlip attack is a white-box gradient-based adversarial attack targeting Text Classification models @hotflip. The attack uses the gradient of the loss function with respect to the input text to identify the most influential characters, and flips them to maximize the loss. I found this method to be also effective for question answering tasks, with a similar implementation.
+
+The HotFlip process begins by performing a forward and backward pass on the original input to compute the gradient of the loss $L$ with respect to the input word embeddings. This yields $g_i = gradient_(e_i) L$ for each embedding $e_i$ at position $i$ in the input sequence.
+
+This gradient indicates the direction in the embedding space that would most increase the loss. We approximate the change in loss resulting from replacing the original token's embedding with a candidate embedding $e'_v$ from the vocabulary's embedding matrix. This is estimated using a first-order Taylor approximation:
+
+$
+Z(v) = g_i^T (e'_v - e_i)
+$
+
+This score $Z(v)$ is computed for all tokens in the vocabulary, and the token with the highest score is selected as the replacement for the token at position $i$. This process is repeated for every non-special token that is not a part of the question or answer span. The flip that causes the highest increase in loss is selected.
+
+A randomly selected subset of SQuAD v1 validation set with size 1000 was applied HotFlip attack, and both quantized and non-quantized models were evaluated on the perturbed dataset. The results are summarized in Table .
+
+== Results
+
+
+- [Step 6] Does this phenomenon align with the observations in Double-Win Quant (ICML’21)? If not, what could be the potential reasons?
+
+  Yes, in terms of accuracy drop under attack.
 
 = Conclusion and Future Work
 
