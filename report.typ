@@ -275,6 +275,7 @@ The HotFlip process begins by performing a forward and backward pass on the orig
 
 This gradient indicates the direction in the embedding space that would most increase the loss. We approximate the change in loss resulting from replacing the original token's embedding with a candidate embedding $e'_v$ from the vocabulary's embedding matrix. This is estimated using a first-order Taylor approximation:
 
+
 $
 Z(v) = g_i^T (e'_v - e_i)
 $
@@ -285,6 +286,26 @@ A randomly selected subset of SQuAD v1 validation set with size 1000 was applied
 
 == Results
 
+
+#figure(
+  caption: [Robustness of CDT models.],
+  placement: auto,
+  table(
+    columns: (2.5fr, 1fr, 1fr, 1fr, 1fr),
+
+    [Policy], [Exact], [F1], [Exact Drop], [F1 Drop],
+
+    
+    [Full Precision], [0.4270], [0.5015], [0.2129], [0.2334],
+    [Outlier Adaptive], [0.4060], [0.4896], [0.1625], [0.1857],
+    [Aggresive LoRA], [0.4040], [0.4828], [0.1408], [0.1707],
+    [Depth Adaptive], [0.3740], [0.4588], [0.1576], [0.1846],
+    [Conservative LoRA], [0.3820], [0.4600], [0.1258], [0.1662],
+    [Uniform LoRA (8-bit)], [0.4110], [0.4847], [0.1789], [0.2013],
+    [Uniform LoRA (6-bit)], [0.2930], [0.3685], [0.0556], [0.1034],
+    [Uniform LoRA (4-bit)], [0.0010], [0.0413], [-0.0001], [0.0149],
+  )
+) <tab:roubustness>
 
 - [Step 6] Does this phenomenon align with the observations in Double-Win Quant (ICML’21)? If not, what could be the potential reasons?
 

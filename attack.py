@@ -63,7 +63,6 @@ def find_best_flip_for_position(input_ids, embedding_gradients, embeddings_layer
     return best_flip_id.item()
 
 
-# Create adversarial examples using a single-token flip based on gradients
 new_input_ids = []
 
 for j, q in enumerate(track(tokenized_squad["validation"])):
@@ -117,16 +116,13 @@ for j, q in enumerate(track(tokenized_squad["validation"])):
         if start_positions - 3 <= i <= end_positions + 3:
             continue
 
-        # Find the best replacement token for position i using our gradient-based function
         replacement_id = find_best_flip_for_position(
             input_ids, embedding_gradients, embeddings_layer, i
         )
 
-        # Create the potential adversarial input
         adversarial_ids_candidate = input_ids.clone()
         adversarial_ids_candidate[0, i] = replacement_id
 
-        # Calculate the loss for this new input
         outputs = model(
             input_ids=adversarial_ids_candidate,
             attention_mask=attention_mask,
