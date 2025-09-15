@@ -296,12 +296,18 @@ class Policy(abc.ABC):
     DEPTH_RE = re.compile(r"\.h\.(\d+)\.")
 
     def classify(self, layer_name: str) -> str:
+        """
+        Returns one of {"mlp_fc", "mlp_proj", "attn_in", "attn_out", "qa"} if recognizes, else raises.
+        """
         for k, pat in self.LAYER_PATTERNS.items():
             if pat.search(layer_name):
                 return k
         raise ValueError(f"Unknown layer name pattern: {layer_name}")
 
     def get_depth(self, layer_name: str) -> Optional[int]:
+        """
+        Returns depth index if recognizes, else None.
+        """
         m = self.DEPTH_RE.search(layer_name)
         if m:
             return int(m.group(1))
@@ -387,6 +393,9 @@ class PlaceboPolicy(Policy):
 
 
 def get_policy_dict(model: nn.Module, policy: Policy) -> Dict[str, PolicyDict]:
+    """
+    Pre-compute the policy for each layer in the model. Returns a dict mapping layer names to PolicyDict.
+    """
     d = {}
 
     def _get_policy_dict(root: str, model: nn.Module, policy: Policy):
@@ -407,10 +416,14 @@ def get_policy_dict(model: nn.Module, policy: Policy) -> Dict[str, PolicyDict]:
     return d
 
 
-# Recursively replace Linear layers in GPT-2 with QuantizedLinear
 def apply_qat_to_gpt2(
     model: nn.Module, policy: Union[Policy, Dict[str, PolicyDict]] = PlaceboPolicy()
 ):
+    """
+    Recursively applies QAT modules to all Linear and Conv1D layers according to the given policy.
+    If the layer is already a QuantizedLinear/Conv1d, it modifies its attributes according to the policy.
+    """
+
     def _apply_qat_to_gpt2(root: str, model: nn.Module, policy: Union[Policy, Dict]):
         for name, module in model.named_children():
             key = root + "." + name
@@ -466,8 +479,10 @@ def apply_qat_to_gpt2(
     _apply_qat_to_gpt2("model", model, policy)
 
 
-# Create a shallow cloned version of model. Which all parameters are shared.
 def shallow_clone(model: nn.Module) -> nn.Module:
+    """
+    Creates a shallow clone of the model. All parameters are shared.
+    """
     new_model = copy.deepcopy(model)
 
     def _clone_shared(m1, m2):
@@ -489,6 +504,9 @@ def shallow_clone(model: nn.Module) -> nn.Module:
 
 
 def calculate_bit_budget(model: nn.Module) -> int:
+    """
+    Calculates the total bit budget of the model. Counts LoRA parameters only if they cannot be merged.
+    """
     total_bits = 0
     for module in model.modules():
         if isinstance(module, QuantizedLinear) or isinstance(module, QuantizedConv1d):

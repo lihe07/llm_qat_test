@@ -33,6 +33,8 @@ Change the `policies_list` to try different quantization policies.
 
 3. Generate HotFlip attack dataset with `attack.py`
 
+You can also download the pre-generated adversarial examples from [here](https://www.dropbox.com/scl/fi/v8kwk4hyysacn65fhcy1l/squad-adversarial.zip).
+
 ```bash
 python attack.py
 ```
