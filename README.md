@@ -65,3 +65,9 @@ Unused:
 
 - `sanity.py`: Some tests for quantization modules.
 - `figures_bars.py` and `figures_pareto.py`: drawing figures in the report.
+- `Untitled.ipynb`: some experiments with GPT-2 and quantization.
+
+Other:
+
+- `DATA.md`: Raw output logs. Should contain all the results in the report.
+- `report.typ`: The report in Typst format.

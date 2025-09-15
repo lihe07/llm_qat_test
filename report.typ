@@ -282,13 +282,15 @@ $
 
 This score $Z(v)$ is computed for all tokens in the vocabulary, and the token with the highest score is selected as the replacement for the token at position $i$. This process is repeated for every non-special token that is not a part of the question or answer span. The flip that causes the highest increase in loss is selected.
 
-A randomly selected subset of SQuAD v1 validation set with size 1000 was applied HotFlip attack, and both quantized and non-quantized models were evaluated on the perturbed dataset. The results are summarized in Table .
+A randomly selected subset of SQuAD v1 validation set with size 1000 was applied HotFlip attack, and both quantized and non-quantized models were evaluated on the perturbed dataset. The results are summarized in Table @tab:roubustness. 
+
+The evaluated quantized models are trained with CDT, as described in the previous sections. The Exact Drop and F1 Drop columns indicate the absolute performance drop after the HotFlip attack.
 
 == Results
 
 
 #figure(
-  caption: [Robustness of CDT models.],
+  caption: [Absolute performance drops of CDT models.],
   placement: auto,
   table(
     columns: (2.5fr, 1fr, 1fr, 1fr, 1fr),
@@ -307,11 +309,31 @@ A randomly selected subset of SQuAD v1 validation set with size 1000 was applied
   )
 ) <tab:roubustness>
 
+
+#figure(
+  caption: [Absolute performances before and after HotFlip Attack],
+  placement: auto,
+  image("./figures/policy_performance_drop.png", width: 120%)
+) <fig:abs>
+
 - [Step 6] Does this phenomenon align with the observations in Double-Win Quant (ICML’21)? If not, what could be the potential reasons?
 
-  Yes, in terms of accuracy drop under attack.
+  Yes, in terms of accuracy drop under attack. All quantized models exhibit smaller drops in both Exact Match and F1 scores compared to the full precision model, as shown in Table @tab:roubustness and Figure @fig:abs. This aligns with the observations in Double-Win Quant (ICML'21) @double, which also reported improved robustness against adversarial attacks for quantized models compared to their full precision counterparts.
+
+  I believe this originates from the fact that quantization introduces noise to the model parameters and activations. Noise injection has been shown to improve model robustness against adversarial attacks @pni. Therefore, quantized models are inherently more robust to small perturbations in the input, such as those introduced by adversarial attacks.
+
 
 = Conclusion and Future Work
+
+In conclusion, this report presents my implementation and evaluation of switchable and dynamic quantization techniques for large language models, specifically GPT2 fine-tuned on the SQuAD v1 dataset. The implementation includes LLM-QAT for quantization-aware training, Cascade Distillation Training (CDT) for simultaneous training of multiple quantization configurations, and Cyclic Precision Training (CPT) for comparison. Finally, the impact of quantization on model robustness against HotFlip adversarial attacks was investigated.
+
+A few relevant directions for future improvements on switchable and dynamic quantization are suggested below:
+
+1. Borrowing the idea of Parametric Noise Injection (PNI) @pni, one could introduce learnable noise akin to quantization noise to the weights and activations during training. More over, PNI allowed the "noise level" to be learned, which could shed light on the optimal bit-width configuration for each layer.
+
+2. Adding a regularization term that encourages the model to learn similar representations across different bit-width configurations. This could be achieved by minimizing the distance between the hidden states of the model under different quantization configurations. This would help models to prepare for the unknown inference-time quantization configuration.
+
+3. Explore ideas from recent quantization methods, such as the GPU-Adaptive Non-Uniform Quantization (GANQ) @ganq. They could also be applied with Quantization Aware Training and switchable quantization.
 
 #bibliography("./refs.bib")
 
