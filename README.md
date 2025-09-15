@@ -2,6 +2,8 @@
 
 Harvey Li <harvey-l@gatech.edu>
 
+PDF Report: [report.pdf](./report.pdf)
+
 ## Requirements
 
 Below is my environment setup for running the code. Similar versions should work.
